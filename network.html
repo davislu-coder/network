@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#F7F6F3">
+<title>Network</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600;700&family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js" crossorigin></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { background: #F7F6F3; }
+  body { font-family: 'Inter', system-ui, sans-serif; color: #22252B; }
+  input, select, textarea, button { font-family: inherit; }
+  input, select, textarea { font-size: 16px; } /* prevents iOS zoom on focus */
+  button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+    outline: 2px solid #1B2A4A; outline-offset: 1px;
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useMemo } = React;
+
+// ---------- Location data ----------
+const LOCATIONS = {
+  "United States": {
+    "California": ["Los Angeles","San Diego","San Francisco","San Jose","Sacramento","Oakland","Palo Alto"],
+    "New York": ["New York","Brooklyn","Buffalo","Rochester","Albany"],
+    "Texas": ["Austin","Dallas","Houston","San Antonio","Fort Worth"],
+    "Illinois": ["Chicago","Naperville","Springfield"],
+    "Massachusetts": ["Boston","Cambridge","Worcester"],
+    "Washington": ["Seattle","Bellevue","Spokane"],
+    "Florida": ["Miami","Orlando","Tampa","Jacksonville"],
+    "Georgia": ["Atlanta","Savannah"],
+    "Colorado": ["Denver","Boulder","Colorado Springs"],
+    "Pennsylvania": ["Philadelphia","Pittsburgh"],
+    "North Carolina": ["Charlotte","Raleigh","Durham"],
+    "Arizona": ["Phoenix","Scottsdale","Tucson"],
+    "Michigan": ["Detroit","Ann Arbor","Grand Rapids"],
+    "Ohio": ["Columbus","Cleveland","Cincinnati"],
+    "Minnesota": ["Minneapolis","St. Paul"],
+    "Oregon": ["Portland","Eugene"],
+    "Tennessee": ["Nashville","Memphis"],
+    "Virginia": ["Arlington","Richmond","Virginia Beach"],
+    "New Jersey": ["Newark","Jersey City","Princeton"],
+    "District of Columbia": ["Washington"],
+    "Utah": ["Salt Lake City","Provo"],
+    "Nevada": ["Las Vegas","Reno"],
+    "Missouri": ["St. Louis","Kansas City"],
+    "Wisconsin": ["Milwaukee","Madison"],
+    "Maryland": ["Baltimore","Bethesda"],
+    "Connecticut": ["Stamford","Hartford","New Haven"],
+  },
+  "Canada": {
+    "Ontario": ["Toronto","Ottawa","Hamilton","Waterloo"],
+    "Quebec": ["Montreal","Quebec City"],
+    "British Columbia": ["Vancouver","Victoria"],
+    "Alberta": ["Calgary","Edmonton"],
+    "Manitoba": ["Winnipeg"],
+    "Nova Scotia": ["Halifax"],
+  },
+  "United Kingdom": {
+    "England": ["London","Manchester","Birmingham","Bristol","Leeds","Cambridge","Oxford"],
+    "Scotland": ["Edinburgh","Glasgow"],
+    "Wales": ["Cardiff"],
+    "Northern Ireland": ["Belfast"],
+  },
+  "Germany": {
+    "Berlin": ["Berlin"], "Bavaria": ["Munich","Nuremberg"], "Hamburg": ["Hamburg"],
+    "Hesse": ["Frankfurt"], "North Rhine-Westphalia": ["Cologne","Düsseldorf"],
+  },
+  "France": {
+    "Île-de-France": ["Paris"], "Provence-Alpes-Côte d'Azur": ["Marseille","Nice"],
+    "Auvergne-Rhône-Alpes": ["Lyon"], "Occitanie": ["Toulouse"],
+  },
+  "India": {
+    "Maharashtra": ["Mumbai","Pune"], "Karnataka": ["Bengaluru"], "Delhi": ["New Delhi"],
+    "Telangana": ["Hyderabad"], "Tamil Nadu": ["Chennai"], "West Bengal": ["Kolkata"],
+  },
+  "Australia": {
+    "New South Wales": ["Sydney"], "Victoria": ["Melbourne"],
+    "Queensland": ["Brisbane"], "Western Australia": ["Perth"],
+  },
+  "Singapore": { "Singapore": ["Singapore"] },
+  "Japan": { "Tokyo": ["Tokyo"], "Osaka": ["Osaka"], "Kyoto": ["Kyoto"] },
+  "Netherlands": { "North Holland": ["Amsterdam"], "South Holland": ["Rotterdam","The Hague"] },
+  "Ireland": { "Leinster": ["Dublin"] },
+  "Spain": { "Madrid": ["Madrid"], "Catalonia": ["Barcelona"] },
+  "Brazil": { "São Paulo": ["São Paulo"], "Rio de Janeiro": ["Rio de Janeiro"] },
+  "Mexico": { "Mexico City": ["Mexico City"], "Jalisco": ["Guadalajara"] },
+  "United Arab Emirates": { "Dubai": ["Dubai"], "Abu Dhabi": ["Abu Dhabi"] },
+};
+
+const TIERS = ["Close","Warm","Cold"];
+const CONTACT_METHODS = ["Email","Phone","LinkedIn","Text","Other"];
+const STORAGE_KEY = "networking-crm:contacts:v1";
+
+// ---------- Helpers ----------
+function daysSince(dateStr) {
+  if (!dateStr) return null;
+  const then = new Date(dateStr + "T00:00:00");
+  const now = new Date(); now.setHours(0,0,0,0);
+  return Math.max(0, Math.round((now - then) / 86400000));
+}
+function freshnessColor(days) {
+  if (days === null) return "#B9B4A8";
+  if (days >= 60) return "#D6553F";
+  const stops = [{d:0,c:[76,154,106]},{d:20,c:[217,166,46]},{d:40,c:[224,123,57]},{d:60,c:[214,85,63]}];
+  let lo = stops[0], hi = stops[1];
+  for (let i=0;i<stops.length-1;i++){
+    if (days >= stops[i].d && days <= stops[i+1].d) { lo=stops[i]; hi=stops[i+1]; break; }
+  }
+  const t = (days - lo.d) / ((hi.d - lo.d) || 1);
+  const rgb = lo.c.map((v,i)=>Math.round(v + (hi.c[i]-v)*t));
+  return "rgb(" + rgb.join(",") + ")";
+}
+function lastTalkedLabel(days) {
+  if (days === null) return "No touchpoints yet";
+  if (days === 0) return "Talked today";
+  if (days === 1) return "Talked yesterday";
+  return "Last talked " + days + " days ago";
+}
+const todayStr = () => {
+  const d = new Date();
+  return new Date(d.getTime() - d.getTimezoneOffset()*60000).toISOString().slice(0,10);
+};
+
+// ---------- Storage (browser-local) ----------
+const store = {
+  load() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch (e) { return null; }
+  },
+  save(data) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); return true; }
+    catch (e) { return false; }
+  }
+};
+
+// ---------- Theme ----------
+const C = { bg:"#F7F6F3", surface:"#FFFFFF", ink:"#22252B", inkSoft:"#6B7076",
+            border:"#E7E4DD", navy:"#1B2A4A", navySoft:"#3D4E73", red:"#D6553F" };
+const serif = "'Fraunces', Georgia, serif";
+const sans = "'Inter', system-ui, sans-serif";
+const grotesk = "'Space Grotesk', 'Inter', sans-serif";
+const tierStyles = {
+  Close: { background:"#E7EFE9", color:"#35704C" },
+  Warm:  { background:"#FBEFE3", color:"#A5642B" },
+  Cold:  { background:"#EDEEF0", color:"#5C6470" },
+};
+
+// ---------- App ----------
+function App() {
+  const [contacts, setContacts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [storageBlocked, setStorageBlocked] = useState(false);
+  const [saveError, setSaveError] = useState(null);
+  const [query, setQuery] = useState("");
+  const [view, setView] = useState({ type:"list" });
+  const [quickLogFor, setQuickLogFor] = useState(null);
+
+  useEffect(() => {
+    const data = store.load();
+    if (data === null) setStorageBlocked(true);
+    else setContacts(data);
+    setLoading(false);
+  }, []);
+
+  const persist = (next) => {
+    setContacts(next);
+    const ok = store.save(next);
+    setSaveError(ok ? null : "Changes couldn't be saved to this browser's storage.");
+  };
+
+  const enriched = useMemo(() => contacts.map(c => {
+    const logs = [...(c.touchpoints||[])].sort((a,b)=>b.date.localeCompare(a.date));
+    const last = logs[0] ? logs[0].date : null;
+    const d = daysSince(last);
+    return {...c, touchpoints: logs, lastDate: last, days: d, color: freshnessColor(d)};
+  }), [contacts]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return enriched;
+    return enriched.filter(c =>
+      [c.name,c.company,c.title,c.industry,c.city,c.state,c.country,c.tier,c.howMet,c.notes]
+        .filter(Boolean).some(f => String(f).toLowerCase().includes(q))
+    );
+  }, [enriched, query]);
+
+  const grouped = useMemo(() => {
+    const map = {};
+    filtered.forEach(c => {
+      const key = c.city ? (c.state ? c.city + ", " + c.state : c.city) : "No location";
+      (map[key] = map[key] || []).push(c);
+    });
+    Object.values(map).forEach(arr => arr.sort((a,b)=>a.name.localeCompare(b.name)));
+    return Object.keys(map).sort((a,b)=>{
+      if (a === "No location") return 1;
+      if (b === "No location") return -1;
+      return a.localeCompare(b);
+    }).map(k => [k, map[k]]);
+  }, [filtered]);
+
+  const overdueCount = enriched.filter(c => c.days !== null && c.days >= 60).length;
+  const cityCount = new Set(enriched.map(c=>c.city).filter(Boolean)).size;
+
+  const saveContact = (data) => {
+    const next = data.id
+      ? contacts.map(c => c.id === data.id ? {...c, ...data} : c)
+      : [...contacts, {...data, id: "c_" + Date.now(), touchpoints: []}];
+    persist(next);
+    setView({ type:"list" });
+  };
+  const deleteContact = (id) => { persist(contacts.filter(c=>c.id!==id)); setView({type:"list"}); };
+  const addTouchpoint = (id, tp) => {
+    persist(contacts.map(c => c.id===id
+      ? {...c, touchpoints:[...(c.touchpoints||[]), {...tp, id:"t_"+Date.now()}]} : c));
+    setQuickLogFor(null);
+  };
+  const deleteTouchpoint = (cid, tid) => {
+    persist(contacts.map(c => c.id===cid
+      ? {...c, touchpoints: c.touchpoints.filter(t=>t.id!==tid)} : c));
+  };
+
+  const exportExcel = () => {
+    const rows = enriched.map(c => ({
+      Name:c.name, Company:c.company||"", Title:c.title||"", Industry:c.industry||"",
+      City:c.city||"", "State/Province":c.state||"", Country:c.country||"",
+      Tier:c.tier||"", "Preferred Contact":c.method||"", Email:c.email||"",
+      Phone:c.phone||"", LinkedIn:c.linkedin||"", "How We Met":c.howMet||"",
+      "Last Talked":c.lastDate||"", "Days Since": c.days===null?"":c.days,
+      Notes:c.notes||"", "Touchpoint Count":(c.touchpoints||[]).length,
+    }));
+    const logRows = [];
+    enriched.forEach(c => (c.touchpoints||[]).forEach(t =>
+      logRows.push({ Name:c.name, Date:t.date, Topic:t.topic||"", Notes:t.notes||"" })));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), "Contacts");
+    if (logRows.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(logRows), "Touchpoint Log");
+    XLSX.writeFile(wb, "network-" + todayStr() + ".xlsx");
+  };
+
+  if (loading) return <div style={{...S.page, display:"flex", alignItems:"center", justifyContent:"center"}}>
+    <div style={{color:C.inkSoft, fontSize:14}}>Loading your network…</div></div>;
+
+  if (view.type === "form")
+    return <ContactForm initial={view.contact} onSave={saveContact}
+      onCancel={()=>setView(view.contact ? {type:"detail", id:view.contact.id} : {type:"list"})} />;
+
+  if (view.type === "detail") {
+    const c = enriched.find(x=>x.id===view.id);
+    if (!c) return <div style={S.page} />;
+    return <ContactDetail contact={c} onBack={()=>setView({type:"list"})}
+      onEdit={()=>setView({type:"form", contact:c})} onDelete={()=>deleteContact(c.id)}
+      onAddTouchpoint={(tp)=>addTouchpoint(c.id, tp)}
+      onDeleteTouchpoint={(tid)=>deleteTouchpoint(c.id, tid)} />;
+  }
+
+  return (
+    <div style={S.page}>
+      <div style={S.phone}>
+        <header style={{padding:"20px 20px 12px"}}>
+          <div style={S.eyebrow}>Your Network</div>
+          <h1 style={S.h1}>Contacts</h1>
+        </header>
+
+        {storageBlocked && <div style={S.errorBar}>
+          This browser is blocking local storage, so contacts won't be saved. Turn off private browsing or allow site data, then reload.
+        </div>}
+        {saveError && <div style={S.errorBar}>{saveError}</div>}
+
+        <div style={S.statsRow}>
+          <Stat num={enriched.length} label="Total" />
+          <Stat num={overdueCount} label="Overdue" danger />
+          <Stat num={cityCount} label="Cities" />
+        </div>
+
+        <div style={{margin:"14px 20px 0"}}>
+          <input style={S.search} placeholder="Search name, industry, city…"
+            value={query} onChange={e=>setQuery(e.target.value)} />
+        </div>
+
+        <div style={S.actionRow}>
+          <button style={S.primaryBtn} onClick={()=>setView({type:"form"})}>+ Add contact</button>
+          <button style={{...S.ghostBtn, opacity: enriched.length?1:0.5}}
+            onClick={exportExcel} disabled={!enriched.length}>Export</button>
+        </div>
+
+        {enriched.length === 0 && <div style={S.empty}>
+          <div style={{fontFamily:serif, fontSize:18, marginBottom:6, color:C.navy}}>Start your network</div>
+          <div style={{fontSize:13, color:C.inkSoft, lineHeight:1.5}}>
+            Add your first contact to begin tracking who you've met and when you last spoke.</div>
+        </div>}
+
+        {enriched.length > 0 && filtered.length === 0 && <div style={S.empty}>
+          <div style={{fontSize:13, color:C.inkSoft}}>No contacts match "{query}". Try a different name, city, or industry.</div>
+        </div>}
+
+        {grouped.map(([city, list]) => (
+          <div key={city}>
+            <div style={S.cityHeader}>
+              <span style={S.cityName}>{city}</span>
+              <span style={S.cityCount}>{list.length}</span>
+            </div>
+            <div style={S.cards}>
+              {list.map(c => <ContactCard key={c.id} c={c}
+                onOpen={()=>setView({type:"detail", id:c.id})}
+                onQuickLog={()=>setQuickLogFor(c)} />)}
+            </div>
+          </div>
+        ))}
+
+        <div style={S.legend}>
+          <div style={S.legendTitle}>Contact Freshness</div>
+          <div style={S.gradientBar} />
+          <div style={S.gradientLabels}>
+            <span>0d</span><span>20d</span><span>40d</span><span>60d+ overdue</span>
+          </div>
+        </div>
+      </div>
+
+      {quickLogFor && <TouchpointModal contactName={quickLogFor.name}
+        onSave={(tp)=>addTouchpoint(quickLogFor.id, tp)}
+        onCancel={()=>setQuickLogFor(null)} />}
+    </div>
+  );
+}
+
+function Stat({ num, label, danger }) {
+  return <div style={S.statPill}>
+    <div style={{...S.statNum, color: danger && num>0 ? C.red : C.navy}}>{num}</div>
+    <div style={S.statLabel}>{label}</div>
+  </div>;
+}
+
+function ContactCard({ c, onOpen, onQuickLog }) {
+  return <div style={S.card} onClick={onOpen}>
+    <div style={S.cardTop}>
+      <div style={{display:"flex", alignItems:"center", gap:8, minWidth:0}}>
+        <span style={{...S.dot, background:c.color}} />
+        <span style={S.name}>{c.name}</span>
+      </div>
+      <button style={S.plusBtn} aria-label={"Log touchpoint with " + c.name}
+        onClick={(e)=>{ e.stopPropagation(); onQuickLog(); }}>+</button>
+    </div>
+    {(c.title || c.company) &&
+      <div style={S.roleLine}>{[c.title, c.company].filter(Boolean).join(" · ")}</div>}
+    <div style={S.metaRow}>
+      {c.industry && <span style={{...S.tag, background:"#EEF0EC", color:"#4B5145"}}>{c.industry}</span>}
+      {c.tier && <span style={{...S.tag, ...tierStyles[c.tier]}}>{c.tier}</span>}
+    </div>
+    <div style={S.lastTalked}>
+      {lastTalkedLabel(c.days)}
+      {c.days !== null && c.days >= 60 && <b style={{color:C.red}}> — overdue</b>}
+    </div>
+  </div>;
+}
+
+function ContactDetail({ contact:c, onBack, onEdit, onDelete, onAddTouchpoint, onDeleteTouchpoint }) {
+  const [logging, setLogging] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  return <div style={S.page}><div style={S.phone}>
+    <div style={{padding:"20px 20px 0"}}>
+      <button style={S.backBtn} onClick={onBack}>← Back</button>
+    </div>
+    <div style={{padding:"12px 20px 0"}}>
+      <div style={{display:"flex", alignItems:"center", gap:10}}>
+        <span style={{...S.dot, width:12, height:12, background:c.color}} />
+        <h1 style={{...S.h1, fontSize:26}}>{c.name}</h1>
+      </div>
+      {(c.title||c.company) && <div style={{...S.roleLine, marginLeft:22, fontSize:14}}>
+        {[c.title,c.company].filter(Boolean).join(" · ")}</div>}
+      <div style={{...S.metaRow, marginLeft:22}}>
+        {c.industry && <span style={{...S.tag, background:"#EEF0EC", color:"#4B5145"}}>{c.industry}</span>}
+        {c.tier && <span style={{...S.tag, ...tierStyles[c.tier]}}>{c.tier}</span>}
+      </div>
+      <div style={{...S.lastTalked, marginLeft:22, fontSize:13}}>
+        {lastTalkedLabel(c.days)}
+        {c.days !== null && c.days >= 60 && <b style={{color:C.red}}> — overdue</b>}
+      </div>
+    </div>
+
+    <div style={{...S.actionRow, marginTop:16}}>
+      <button style={S.primaryBtn} onClick={()=>setLogging(true)}>+ Log touchpoint</button>
+      <button style={S.ghostBtn} onClick={onEdit}>Edit</button>
+    </div>
+
+    <Section title="Details">
+      <Field label="Location" value={[c.city,c.state,c.country].filter(Boolean).join(", ")} />
+      <Field label="Preferred contact" value={c.method} />
+      <Field label="Email" value={c.email} />
+      <Field label="Phone" value={c.phone} />
+      <Field label="LinkedIn" value={c.linkedin} link />
+      <Field label="How we met" value={c.howMet} />
+      <Field label="Notes" value={c.notes} />
+    </Section>
+
+    <Section title={"Touchpoint history (" + c.touchpoints.length + ")"}>
+      {c.touchpoints.length === 0 &&
+        <div style={{fontSize:13, color:C.inkSoft, padding:"4px 0 8px"}}>
+          No touchpoints logged yet. Log one to start the history.</div>}
+      {c.touchpoints.map(t => <div key={t.id} style={S.logEntry}>
+        <div style={{display:"flex", justifyContent:"space-between", alignItems:"baseline"}}>
+          <span style={S.logDate}>{new Date(t.date+"T00:00:00")
+            .toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})}</span>
+          <button style={S.tinyBtn} onClick={()=>onDeleteTouchpoint(t.id)}>Remove</button>
+        </div>
+        {t.topic && <div style={S.logTopic}>{t.topic}</div>}
+        {t.notes && <div style={S.logNotes}>{t.notes}</div>}
+      </div>)}
+    </Section>
+
+    <div style={{padding:"8px 20px 40px"}}>
+      {!confirmDelete
+        ? <button style={S.dangerGhost} onClick={()=>setConfirmDelete(true)}>Delete contact</button>
+        : <div style={S.confirmBox}>
+            <div style={{fontSize:13, marginBottom:10}}>
+              Delete {c.name} and their full history? This can't be undone.</div>
+            <div style={{display:"flex", gap:8}}>
+              <button style={S.dangerBtn} onClick={onDelete}>Delete</button>
+              <button style={S.ghostBtn} onClick={()=>setConfirmDelete(false)}>Keep</button>
+            </div>
+          </div>}
+    </div>
+  </div>
+  {logging && <TouchpointModal contactName={c.name}
+    onSave={(tp)=>{ onAddTouchpoint(tp); setLogging(false); }}
+    onCancel={()=>setLogging(false)} />}
+  </div>;
+}
+
+function Section({ title, children }) {
+  return <div style={{padding:"0 20px"}}>
+    <div style={S.sectionHeader}>{title}</div>
+    <div style={S.sectionBody}>{children}</div>
+  </div>;
+}
+
+function Field({ label, value, link }) {
+  if (!value) return null;
+  return <div style={{marginBottom:10}}>
+    <div style={S.fieldLabel}>{label}</div>
+    {link
+      ? <a href={value.startsWith("http") ? value : "https://"+value} target="_blank"
+          rel="noreferrer" style={S.fieldLink}>{value}</a>
+      : <div style={S.fieldValue}>{value}</div>}
+  </div>;
+}
+
+function TouchpointModal({ contactName, onSave, onCancel }) {
+  const [date, setDate] = useState(todayStr());
+  const [topic, setTopic] = useState("");
+  const [notes, setNotes] = useState("");
+  return <div style={S.overlay} onClick={onCancel}>
+    <div style={S.modal} onClick={e=>e.stopPropagation()}>
+      <div style={S.modalTitle}>Log touchpoint</div>
+      <div style={S.modalSub}>with {contactName}</div>
+      <label style={S.label}>Date</label>
+      <input type="date" style={S.input} value={date} max={todayStr()}
+        onChange={e=>setDate(e.target.value)} />
+      <label style={S.label}>What did you talk about?</label>
+      <input style={S.input} value={topic} placeholder="Q3 hiring plans, intro to their CTO…"
+        onChange={e=>setTopic(e.target.value)} />
+      <label style={S.label}>Other notes</label>
+      <textarea style={{...S.input, minHeight:70, resize:"vertical"}} value={notes}
+        placeholder="Follow up in 6 weeks about the referral"
+        onChange={e=>setNotes(e.target.value)} />
+      <div style={{display:"flex", gap:8, marginTop:14}}>
+        <button style={S.primaryBtn} onClick={()=>onSave({date, topic, notes})}>Save touchpoint</button>
+        <button style={S.ghostBtn} onClick={onCancel}>Cancel</button>
+      </div>
+    </div>
+  </div>;
+}
+
+function ContactForm({ initial, onSave, onCancel }) {
+  const [f, setF] = useState(initial || {
+    name:"", company:"", title:"", industry:"", country:"", state:"", city:"",
+    customCity:false, tier:"Warm", method:"", email:"", phone:"", linkedin:"",
+    howMet:"", notes:""
+  });
+  const [err, setErr] = useState("");
+  const set = (k,v) => setF(p => ({...p, [k]:v}));
+  const states = f.country ? Object.keys(LOCATIONS[f.country] || {}) : [];
+  const cities = (f.country && f.state) ? ((LOCATIONS[f.country]||{})[f.state] || []) : [];
+
+  const submit = () => {
+    if (!f.name.trim()) { setErr("Add a name to save this contact."); return; }
+    onSave({...f, name: f.name.trim()});
+  };
+
+  return <div style={S.page}><div style={S.phone}>
+    <div style={{padding:"20px 20px 0"}}>
+      <button style={S.backBtn} onClick={onCancel}>← Cancel</button>
+      <h1 style={{...S.h1, fontSize:24, marginTop:10}}>{initial ? "Edit contact" : "New contact"}</h1>
+    </div>
+    <div style={{padding:"14px 20px 40px"}}>
+      {err && <div style={S.errorBar}>{err}</div>}
+
+      <label style={S.label}>Name</label>
+      <input style={S.input} value={f.name} onChange={e=>set("name", e.target.value)} placeholder="Priya Chandran" />
+
+      <label style={S.label}>Company</label>
+      <input style={S.input} value={f.company} onChange={e=>set("company", e.target.value)} placeholder="Meridian Health" />
+
+      <label style={S.label}>Title</label>
+      <input style={S.input} value={f.title} onChange={e=>set("title", e.target.value)} placeholder="Director of Partnerships" />
+
+      <label style={S.label}>Industry</label>
+      <input style={S.input} value={f.industry} onChange={e=>set("industry", e.target.value)} placeholder="Healthcare" />
+
+      <label style={S.label}>Country</label>
+      <select style={S.input} value={f.country} onChange={e=>{
+        set("country", e.target.value); set("state",""); set("city",""); set("customCity",false); }}>
+        <option value="">Select country</option>
+        {Object.keys(LOCATIONS).sort().map(c => <option key={c} value={c}>{c}</option>)}
+      </select>
+
+      {f.country && <React.Fragment>
+        <label style={S.label}>State / Province</label>
+        <select style={S.input} value={f.state} onChange={e=>{
+          set("state", e.target.value); set("city",""); set("customCity",false); }}>
+          <option value="">Select state/province</option>
+          {states.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+      </React.Fragment>}
+
+      {f.state && <React.Fragment>
+        <label style={S.label}>City</label>
+        {!f.customCity
+          ? <select style={S.input} value={f.city} onChange={e=>{
+              if (e.target.value === "__other") { set("customCity", true); set("city",""); }
+              else set("city", e.target.value); }}>
+              <option value="">Select city</option>
+              {cities.map(ct => <option key={ct} value={ct}>{ct}</option>)}
+              <option value="__other">Other — type it in</option>
+            </select>
+          : <React.Fragment>
+              <input style={S.input} value={f.city} autoFocus placeholder="Type city name"
+                onChange={e=>set("city", e.target.value)} />
+              <button style={{...S.tinyBtn, marginBottom:10}}
+                onClick={()=>{ set("customCity", false); set("city",""); }}>Back to list</button>
+            </React.Fragment>}
+      </React.Fragment>}
+
+      <label style={S.label}>Relationship tier</label>
+      <div style={{display:"flex", gap:8, marginBottom:12}}>
+        {TIERS.map(t => <button key={t} onClick={()=>set("tier", t)}
+          style={{...S.tierBtn, ...(f.tier===t ? {...tierStyles[t], borderColor:"transparent", fontWeight:700} : {})}}>
+          {t}</button>)}
+      </div>
+
+      <label style={S.label}>Preferred contact method</label>
+      <select style={S.input} value={f.method} onChange={e=>set("method", e.target.value)}>
+        <option value="">Select method</option>
+        {CONTACT_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
+      </select>
+
+      <label style={S.label}>Email</label>
+      <input style={S.input} value={f.email} onChange={e=>set("email", e.target.value)} placeholder="name@company.com" />
+
+      <label style={S.label}>Phone</label>
+      <input style={S.input} value={f.phone} onChange={e=>set("phone", e.target.value)} placeholder="(555) 123-4567" />
+
+      <label style={S.label}>LinkedIn</label>
+      <input style={S.input} value={f.linkedin} onChange={e=>set("linkedin", e.target.value)} placeholder="linkedin.com/in/…" />
+
+      <label style={S.label}>How we met</label>
+      <input style={S.input} value={f.howMet} onChange={e=>set("howMet", e.target.value)} placeholder="SXSW 2026 panel" />
+
+      <label style={S.label}>Notes</label>
+      <textarea style={{...S.input, minHeight:70, resize:"vertical"}} value={f.notes}
+        onChange={e=>set("notes", e.target.value)}
+        placeholder="Interested in advisory roles, has two kids in college" />
+
+      <button style={{...S.primaryBtn, width:"100%", marginTop:16, padding:"12px 0"}}
+        onClick={submit}>{initial ? "Save changes" : "Add contact"}</button>
+    </div>
+  </div></div>;
+}
+
+// ---------- Styles ----------
+const S = {
+  page: { minHeight:"100vh", background:C.bg, color:C.ink, fontFamily:sans, display:"flex", justifyContent:"center" },
+  phone: { width:"100%", maxWidth:430, paddingBottom:40 },
+  eyebrow: { fontSize:11, letterSpacing:"0.12em", textTransform:"uppercase", color:C.navySoft, fontWeight:700 },
+  h1: { fontFamily:serif, fontSize:28, fontWeight:700, letterSpacing:"-0.01em", marginTop:2, color:C.navy },
+  statsRow: { display:"flex", gap:10, padding:"12px 20px 4px" },
+  statPill: { flex:1, background:C.surface, border:"1px solid "+C.border, borderTop:"2.5px solid "+C.navy, borderRadius:10, padding:"10px 12px" },
+  statNum: { fontFamily:grotesk, fontSize:20, fontWeight:700 },
+  statLabel: { fontSize:10.5, color:C.inkSoft, textTransform:"uppercase", letterSpacing:"0.06em", marginTop:1 },
+  search: { width:"100%", border:"1px solid "+C.border, background:C.surface, borderRadius:10, padding:"11px 14px", color:C.ink },
+  actionRow: { display:"flex", gap:8, padding:"10px 20px 4px" },
+  primaryBtn: { flex:1, background:C.navy, color:"#fff", border:"none", borderRadius:10, padding:"11px 14px", fontSize:14, fontWeight:600, cursor:"pointer" },
+  ghostBtn: { background:C.surface, color:C.navy, border:"1px solid "+C.border, borderRadius:10, padding:"11px 16px", fontSize:14, fontWeight:600, cursor:"pointer" },
+  cityHeader: { display:"flex", alignItems:"baseline", justifyContent:"space-between", padding:"18px 0 6px", borderBottom:"1.5px solid "+C.navy, margin:"0 20px" },
+  cityName: { fontFamily:serif, fontSize:13.5, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.05em", color:C.navy },
+  cityCount: { fontSize:11.5, color:C.inkSoft, fontWeight:500 },
+  cards: { padding:"10px 20px 6px", display:"flex", flexDirection:"column", gap:10 },
+  card: { background:C.surface, border:"1px solid "+C.border, borderLeft:"3px solid "+C.navy, borderRadius:14, padding:"14px 14px 12px", cursor:"pointer" },
+  cardTop: { display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 },
+  dot: { width:9, height:9, borderRadius:"50%", flexShrink:0, display:"inline-block" },
+  name: { fontFamily:serif, fontSize:16.5, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" },
+  plusBtn: { width:30, height:30, borderRadius:8, background:C.navy, border:"none", color:"#fff", fontSize:17, fontWeight:600, cursor:"pointer", flexShrink:0, lineHeight:1 },
+  roleLine: { fontSize:13, color:C.inkSoft, marginTop:3, marginLeft:17 },
+  metaRow: { display:"flex", alignItems:"center", gap:8, marginTop:10, marginLeft:17, flexWrap:"wrap" },
+  tag: { fontSize:11, padding:"3px 8px", borderRadius:999, fontWeight:600 },
+  lastTalked: { fontSize:12, color:C.inkSoft, marginTop:8, marginLeft:17 },
+  legend: { margin:"18px 20px 22px", background:C.surface, border:"1px solid "+C.border, borderRadius:12, padding:"12px 14px" },
+  legendTitle: { fontSize:11, textTransform:"uppercase", letterSpacing:"0.08em", color:C.inkSoft, fontWeight:600, marginBottom:8 },
+  gradientBar: { height:8, borderRadius:999, background:"linear-gradient(90deg,#4C9A6A 0%,#D9A62E 33%,#E07B39 66%,#D6553F 100%)" },
+  gradientLabels: { display:"flex", justifyContent:"space-between", fontSize:10, color:C.inkSoft, marginTop:6 },
+  empty: { margin:"18px 20px", background:C.surface, border:"1px dashed "+C.border, borderRadius:14, padding:"22px 18px", textAlign:"center" },
+  errorBar: { margin:"0 20px 10px", background:"#FBE9E6", color:"#8C3527", border:"1px solid #F0CFC9", borderRadius:10, padding:"9px 12px", fontSize:12.5, lineHeight:1.45 },
+  backBtn: { background:"transparent", border:"none", color:C.navy, fontSize:14, fontWeight:600, cursor:"pointer", padding:0 },
+  sectionHeader: { fontFamily:serif, fontSize:13, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.05em", color:C.navy, borderBottom:"1.5px solid "+C.navy, paddingBottom:6, marginTop:22 },
+  sectionBody: { paddingTop:12 },
+  fieldLabel: { fontSize:10.5, textTransform:"uppercase", letterSpacing:"0.06em", color:C.inkSoft, fontWeight:600 },
+  fieldValue: { fontSize:14, marginTop:2, lineHeight:1.45 },
+  fieldLink: { fontSize:14, marginTop:2, color:C.navy, wordBreak:"break-all" },
+  logEntry: { background:C.surface, border:"1px solid "+C.border, borderLeft:"3px solid "+C.navySoft, borderRadius:12, padding:"11px 13px", marginBottom:9 },
+  logDate: { fontFamily:grotesk, fontSize:12.5, fontWeight:700, color:C.navy },
+  logTopic: { fontSize:14, marginTop:5, lineHeight:1.4 },
+  logNotes: { fontSize:12.5, color:C.inkSoft, marginTop:4, lineHeight:1.45 },
+  tinyBtn: { background:"transparent", border:"none", color:C.inkSoft, fontSize:11.5, cursor:"pointer", padding:0, textDecoration:"underline" },
+  dangerGhost: { background:"transparent", border:"1px solid "+C.border, color:C.red, borderRadius:10, padding:"11px 16px", fontSize:13.5, fontWeight:600, cursor:"pointer", width:"100%" },
+  dangerBtn: { flex:1, background:C.red, color:"#fff", border:"none", borderRadius:10, padding:"10px 14px", fontSize:14, fontWeight:600, cursor:"pointer" },
+  confirmBox: { background:C.surface, border:"1px solid "+C.border, borderRadius:12, padding:14 },
+  overlay: { position:"fixed", inset:0, background:"rgba(27,42,74,0.35)", display:"flex", alignItems:"flex-end", justifyContent:"center", zIndex:50 },
+  modal: { background:C.bg, width:"100%", maxWidth:430, borderTopLeftRadius:20, borderTopRightRadius:20, padding:"20px 20px 28px", maxHeight:"88vh", overflowY:"auto" },
+  modalTitle: { fontFamily:serif, fontSize:20, fontWeight:700, color:C.navy },
+  modalSub: { fontSize:13, color:C.inkSoft, marginBottom:14 },
+  label: { display:"block", fontSize:11, textTransform:"uppercase", letterSpacing:"0.06em", color:C.inkSoft, fontWeight:600, marginTop:12, marginBottom:5 },
+  input: { width:"100%", border:"1px solid "+C.border, background:C.surface, borderRadius:10, padding:"10px 12px", color:C.ink, marginBottom:2 },
+  tierBtn: { flex:1, background:C.surface, border:"1px solid "+C.border, borderRadius:10, padding:"10px 0", fontSize:13.5, fontWeight:600, color:C.inkSoft, cursor:"pointer" },
+};
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
