@@ -115,8 +115,8 @@ function daysSince(dateStr) {
 }
 function freshnessColor(days) {
   if (days === null) return "#B9B4A8";
-  if (days >= 60) return "#D6553F";
-  const stops = [{d:0,c:[76,154,106]},{d:20,c:[217,166,46]},{d:40,c:[224,123,57]},{d:60,c:[214,85,63]}];
+  if (days >= 180) return "#D6553F";
+  const stops = [{d:0,c:[76,154,106]},{d:60,c:[217,166,46]},{d:120,c:[224,123,57]},{d:180,c:[214,85,63]}];
   let lo = stops[0], hi = stops[1];
   for (let i=0;i<stops.length-1;i++){
     if (days >= stops[i].d && days <= stops[i+1].d) { lo=stops[i]; hi=stops[i+1]; break; }
@@ -215,7 +215,7 @@ function App() {
     }).map(k => [k, map[k]]);
   }, [filtered]);
 
-  const overdueCount = enriched.filter(c => c.days !== null && c.days >= 60).length;
+  const overdueCount = enriched.filter(c => c.days !== null && c.days >= 180).length;
   const cityCount = new Set(enriched.map(c=>c.city).filter(Boolean)).size;
 
   const saveContact = (data) => {
@@ -328,7 +328,7 @@ function App() {
           <div style={S.legendTitle}>Contact Freshness</div>
           <div style={S.gradientBar} />
           <div style={S.gradientLabels}>
-            <span>0d</span><span>20d</span><span>40d</span><span>60d+ overdue</span>
+            <span>0d</span><span>60d</span><span>120d</span><span>180d+ overdue</span>
           </div>
         </div>
       </div>
@@ -365,7 +365,7 @@ function ContactCard({ c, onOpen, onQuickLog }) {
     </div>
     <div style={S.lastTalked}>
       {lastTalkedLabel(c.days)}
-      {c.days !== null && c.days >= 60 && <b style={{color:C.red}}> — overdue</b>}
+      {c.days !== null && c.days >= 180 && <b style={{color:C.red}}> — overdue</b>}
     </div>
   </div>;
 }
@@ -390,7 +390,7 @@ function ContactDetail({ contact:c, onBack, onEdit, onDelete, onAddTouchpoint, o
       </div>
       <div style={{...S.lastTalked, marginLeft:22, fontSize:13}}>
         {lastTalkedLabel(c.days)}
-        {c.days !== null && c.days >= 60 && <b style={{color:C.red}}> — overdue</b>}
+        {c.days !== null && c.days >= 180 && <b style={{color:C.red}}> — overdue</b>}
       </div>
     </div>
 
